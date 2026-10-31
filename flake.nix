@@ -19,6 +19,13 @@
         src = token-meter;
 
         nativeBuildInputs = [ pkgs.makeWrapper ];
+        patches = [ ./nix-ollama.patch ./nix-updates.patch ];
+        patchFlags = [ "-p1" "--no-backup-if-mismatch" ];
+        postPatch = ''
+          substituteInPlace token_meter/services/work_setup.py \
+            --replace-fail '@nixOllama@' '${pkgs.ollama}' \
+            --replace-fail 'OLLAMA_VERSION = "0.34.4"' 'OLLAMA_VERSION = "${pkgs.ollama.version}"'
+        '';
         dontBuild = true;
 
         installPhase = ''
@@ -33,6 +40,7 @@
           makeWrapper ${pkgs.python3}/bin/python3 "$out/bin/token-meter-mcp" \
             --add-flags "$out/share/token-meter/token_meter_mcp.py" \
             --set PYTHONDONTWRITEBYTECODE 1
+          cp "$out/bin/token-meter-mcp" "$out/share/token-meter/scripts/run-token-meter-mcp"
           runHook postInstall
         '';
 
@@ -47,9 +55,17 @@
     in {
       packages = forAllSystems (system:
         let package = mkPackage nixpkgs.legacyPackages.${system};
-        in { default = package; token-meter = package; });
+        in {
+          default = package;
+          token-meter = package;
+          ollama = nixpkgs.legacyPackages.${system}.ollama;
+        });
 
       apps = forAllSystems (system: {
+        ollama = {
+          type = "app";
+          program = "${nixpkgs.legacyPackages.${system}.ollama}/bin/ollama";
+        };
         default = {
           type = "app";
           program = "${mkPackage nixpkgs.legacyPackages.${system}}/bin/token-meter";
@@ -70,7 +86,10 @@
             mkdir -p "$HOME"
             export PYTHONDONTWRITEBYTECODE=1
             cd ${package}/share/token-meter
+            export PYTHONPATH="$PWD"
             ${pkgs.python3}/bin/python3 -c 'import meter; import token_meter_mcp; assert meter.PORT == 8722'
+            ${pkgs.python3}/bin/python3 ${./test_work_setup.py}
+            ${pkgs.python3}/bin/python3 ${./test_packaging.py}
             test -s page.html
             test -s performance.html
             touch "$out"

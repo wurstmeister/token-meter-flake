@@ -1,0 +1,83 @@
+--- a/token_meter/services/work_setup.py
++++ b/token_meter/services/work_setup.py
+@@ -198,2 +198,2 @@
+-            return dict(self._state, managed=self.get_settings().get("ollama_url") == MANAGED_URL,
++            return dict(self._state, managed=False,
+                         ollama_version=OLLAMA_VERSION)
+@@ -339,37 +339,8 @@
+     def _ollama(self, configured):
+         version = self._version(configured)
+-        if configured != MANAGED_URL and version is None and self._find_cli():
+-            # The user's own Ollama is installed but not answering: open the app if there is one and wait for it.
+-            # If it still does not answer at the default address, use Token Meter's own pinned Ollama rather
+-            # than fail on every retry.
+-            self._open_ollama_app(self._find_cli())
+-            for _attempt in range(int(OWN_OLLAMA_WAIT_S / 2)):
+-                self._checkpoint()
+-                self.sleep(2)
+-                version = self._version(configured)
+-                if version is not None:
+-                    break
+-            else:
+-                if configured.rstrip("/") != DEFAULT_OLLAMA_URL:
+-                    raise SetupError("ollama_offline")  # an address the user chose is never replaced
+-        if configured != MANAGED_URL and version and version >= MIN_OLLAMA_VERSION:
+-            return configured, self._find_cli() or self._install_ollama()
+-        binary = self._install_ollama()
+-        self._checkpoint()
+-        if not self._version(MANAGED_URL):
+-            self._set(STARTING)
+-            self.start_agent(binary)
+-            for _attempt in range(int(MANAGED_START_WAIT_S / 0.5)):
+-                if self._version(MANAGED_URL):
+-                    break
+-                if self._cancel.is_set():
+-                    self.stop_agent()
+-                    raise SetupError("cancelled")
+-                self.sleep(0.5)
+-            else:
+-                self.stop_agent()
+-                raise SetupError("ollama_start", detail="start_timeout")
+-        self._checkpoint()
+-        if configured != MANAGED_URL:
+-            self.set_ollama_url(MANAGED_URL)
+-        return MANAGED_URL, binary
++        if version is None:
++            raise SetupError("ollama_offline")
++        if version < MIN_OLLAMA_VERSION:
++            self.log("Ollama is too old; update the Nix-managed service")
++            raise SetupError("ollama_start")
++        return configured, self._find_cli()
+@@ -387,6 +358,2 @@
+     def _find_cli(self):
+-        for candidate in CLI_CANDIDATES:
+-            path = os.path.expanduser(candidate)
+-            if os.path.isfile(path) and os.access(path, os.X_OK):
+-                return path
+-        return None
++        return "@nixOllama@/bin/ollama"
+@@ -414,22 +381,3 @@
+     def _install_ollama(self):
+-        final = os.path.dirname(self.binary)
+-        if os.path.isfile(self.binary) and self._signed_by_ollama(self.binary):
+-            return self.binary
+-        self._set(INSTALLING, total_bytes=OLLAMA_ARCHIVE_SIZE)
+-        os.makedirs(self.cache_dir, exist_ok=True)
+-        archive = os.path.join(self.cache_dir, f"ollama-{OLLAMA_VERSION}-darwin.tgz")
+-        self._download(OLLAMA_ARCHIVE_URL, archive, OLLAMA_ARCHIVE_SIZE, OLLAMA_ARCHIVE_DIGEST, 0)
+-        partial = final + ".partial"
+-        shutil.rmtree(partial, ignore_errors=True)
+-        os.makedirs(partial)
+-        try:
+-            safe_extract(archive, partial)
+-            self._verify_bundle(partial)
+-        except (tarfile.TarError, OSError, SetupError) as error:
+-            shutil.rmtree(partial, ignore_errors=True)
+-            os.remove(archive)  # A retry downloads it again rather than repeating the same failure.
+-            raise SetupError("verify", detail=getattr(error, "detail", "") or "archive") from None
+-        shutil.rmtree(final, ignore_errors=True)
+-        os.replace(partial, final)
+-        os.remove(archive)
+-        return self.binary
++        # Runtime installation is owned by Nix, never by the application.
++        return self._find_cli()

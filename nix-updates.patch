@@ -1,0 +1,68 @@
+--- a/token_meter/app.py
++++ b/token_meter/app.py
+@@ -2981,9 +2981,3 @@
+ def update_settings(path=None):
+-    """Load the default-on update-check and installation preferences."""
+-    path = path or TOKEN_METER_SETTINGS
+-    settings = load_json(path, {})
+-    raw = settings.get("updates") if isinstance(settings, dict) else {}
+-    try:
+-        return normalize_update_settings(raw)
+-    except ValueError:
+-        return normalize_update_settings({})
++    """Nix owns this installation, regardless of saved preferences."""
++    return normalize_update_settings({"enabled": False, "auto_install": False})
+@@ -2992,23 +2986,3 @@
+ def set_update_settings(values, path=None):
+-    """Persist update preferences without changing the checkout."""
+-    path = path or TOKEN_METER_SETTINGS
+-    try:
+-        normalized = normalize_update_settings(values)
+-    except ValueError as error:
+-        return {"ok": False, "error": str(error)}
+-    stored = {
+-        "enabled": normalized["enabled"],
+-        "auto_install": normalized["auto_install"],
+-    }
+-    try:
+-        with _settings_file_lock(path):
+-            settings = load_json(path, {})
+-            if not isinstance(settings, dict):
+-                settings = {}
+-            changed = settings.get("updates") != stored
+-            settings["updates"] = stored
+-            write_settings_json(path, settings)
+-    except OSError as error:
+-        return {"ok": False, "error": f"Token Meter could not save settings: {error}"}
+-    _update_wake.set()
+-    return {"ok": True, "changed": changed, "updates": normalized}
++    """Do not allow the dashboard to take over Nix-managed updates."""
++    return {"ok": False, "error": "Managed by Nix; update the flake and rebuild."}
+@@ -3448,2 +3422,2 @@
+     if state == "disabled":
+-        return "Automatic update checks are off."
++        return "Managed by Nix; update the flake and rebuild."
+@@ -3513,2 +3487,3 @@
+         "enabled": enabled,
++        "managed_by": "nix",
+         "auto_install": settings["auto_install"],
+@@ -3530,1 +3505,1 @@
+-        "actions": {"token": _ACTION_TOKEN, "check": True, "install": True},
++        "actions": {"token": _ACTION_TOKEN, "check": False, "install": False},
+@@ -3670,1 +3645,1 @@
+-        return {"ok": False, "error": "Enable automatic update checks first."}
++        return {"ok": False, "error": "Managed by Nix; update the flake and rebuild."}
+@@ -3696,1 +3671,1 @@
+-        return {"ok": False, "error": "Enable automatic update checks first."}
++        return {"ok": False, "error": "Managed by Nix; update the flake and rebuild."}
+--- a/page.html
++++ b/page.html
+@@ -5775,1 +5775,2 @@
+  $('update-enabled').checked=enabled;
++ $('update-enabled').disabled=status.managed_by==='nix';
+@@ -5781,1 +5782,1 @@
+-  disabled:'Checks off',waiting:'Waiting',checking:'Checking',available:'Update ready',
++  disabled:status.managed_by==='nix'?'Managed by Nix':'Checks off',waiting:'Waiting',checking:'Checking',available:'Update ready',
+@@ -5866,1 +5867,1 @@
+-  $('update-enabled').disabled=false;
++  $('update-enabled').disabled=SOFTWARE_UPDATE?.managed_by==='nix';
